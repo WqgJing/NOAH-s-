@@ -291,6 +291,23 @@ diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_bui
         noahmp%biochem%param%CarboxylRateMaxQ10      = NoahmpIO%AVCMXI_TABLE   (CropType)
         noahmp%biochem%param%PhotosynPathC3          = NoahmpIO%C3PSNI_TABLE   (CropType)
         noahmp%biochem%param%SlopeConductToPhotosyn  = NoahmpIO%MPI_TABLE      (CropType)
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/ConfigVarInTransferMod.F90 build/hrldas/noahmp/drivers/hrldas/ConfigVarInTransferMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/ConfigVarInTransferMod.F90	2026-11-10 16:04:45.165694662 -0500
++++ build/hrldas/noahmp/drivers/hrldas/ConfigVarInTransferMod.F90	2026-11-10 18:07:00.215013711 -0500
+@@ -146,7 +146,12 @@
+        noahmp%config%domain%SoilType(4) = nint(NoahmpIO%SOILCL4(I,J))        ! soil type in layer4
+     elseif ( noahmp%config%nmlist%OptSoilProperty == 3 ) then
+        noahmp%config%domain%SoilType(1:NumSoilLayer) = NoahmpIO%ISLTYP(I,J)  ! to initialize with default
+-    endif 
++    elseif ( noahmp%config%nmlist%OptSoilProperty == 4 ) then
++       ! [noah/ s*] upstream fix (v5.2.1): SoilType stayed undefined (-9999) for option 4, but EnergyVarInTransfer and
++       ! WaterVarInTransfer index the soil tables with it before the option-4 spatial values overwrite them (out of bounds;
++       ! aborts under -fbounds-check). Initialize with ISLTYP as option 3 does; option-4 fields still override.
++       noahmp%config%domain%SoilType(1:NumSoilLayer) = NoahmpIO%ISLTYP(I,J)
++    endif
+        
+     noahmp%config%domain%DepthSoilLayer(1:NumSoilLayer) = NoahmpIO%ZSOIL(1:NumSoilLayer)
+     noahmp%config%domain%DepthSnowSoilLayer(-NumSnowLayerMax+1:NumSoilLayer) = &
 diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90 build/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90
 --- src/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90	2026-11-10 16:04:45.171329955 -0500
 +++ build/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90	2026-11-10 16:55:35.168049463 -0500
