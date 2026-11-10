@@ -70,7 +70,9 @@ for cfg in CONFIGS:
 # Minimal figure (project plot style): tutorial reference (markers) vs our run with the tutorial's options (line).
 import matplotlib.dates as mdates, os
 ours = res["tutorial"]
-fig, ax = plt.subplots(1, 2, figsize=(11, 3.6), layout="constrained")
+fig = plt.figure(figsize=(11, 7), layout="constrained")
+gs = fig.add_gridspec(2, 2)
+ax = [fig.add_subplot(gs[0, 0]), fig.add_subplot(gs[0, 1]), fig.add_subplot(gs[1, :])]
 a = ax[0]
 a.plot(REF_LH_T, REF_LH, "o", color="k", ms=4, mfc="none", label="NCAR tutorial")
 a.plot(REF_LH_T, ours[0]["LH"].reindex(REF_LH_T), "-", color="tab:red", lw=1.4, label="this run")
@@ -82,6 +84,11 @@ a.plot(REF_T, REF_TSLB, "o", color="k", ms=4, mfc="none", label="NCAR tutorial")
 a.plot(REF_T, ours[1]["TSLB1"].reindex(REF_T), "-", color="tab:red", lw=1.4, label="this run")
 a.set_ylabel("Top-layer soil temperature (K)"); a.set_xlabel("2 Jan 1998 (UTC)")
 a.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 8, 2))); a.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+a = ax[2]                                             # TRAD: the tutorial gives no reference, so this run only
+trad = ours[0]["TRAD"].dropna()
+a.plot(trad.index, trad.values, "-", color="tab:red", lw=0.4)
+a.set_ylabel("TRAD (K)"); a.set_xlim(trad.index[0], trad.index[-1])
+a.xaxis.set_major_locator(mdates.MonthLocator()); a.xaxis.set_major_formatter(mdates.DateFormatter("%b"))
 for a in ax: a.spines[["top", "right"]].set_visible(False)
 os.makedirs(f"{N}/runs/figs", exist_ok=True)
 fig.savefig(f"{N}/runs/figs/bondville_reproduce.png", dpi=130); print("\nsaved runs/figs/bondville_reproduce.png")
