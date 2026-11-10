@@ -30,6 +30,8 @@ from MODIS LST. The design discussion is in `../tasks/todo.md` (2026-11-10 secti
 ## Workflow
 - After each change: commit, then push to `git@github.com:WqgJing/NOAH-s-.git` (main).
 - Upstream code under `src/` is never edited in place. Our changes go in `scripts/`, `hpc/` and (later) `patches/`.
+- Figures: line plots only, minimal and clean. No titles or explanatory text; axis labels with units, and a legend only if
+  there is more than one line.
 - Jobs run through `sbatch` (`hpc/*.slurm`, logs in `logs/`). Batch scripts must `source /etc/profile.d/z00_lmod_pace.sh`
   before `module load`.
 
