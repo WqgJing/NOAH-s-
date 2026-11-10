@@ -28,7 +28,8 @@ from MODIS LST. The design discussion is in `../tasks/todo.md` (2026-11-10 secti
 - **Examples**: hrldas/HRLDAS_forcing/run/examples/{single_point (Bondville), ERA5 (ERA5-Land forcing prep)}.
 
 ## Workflow
-- After each change: commit, then push to `git@github.com:WqgJing/NOAH-s-.git` (main).
+- After each change: commit. Push to `git@github.com:WqgJing/NOAH-s-.git` (main) for real changes (model code, setup,
+  results). Small checks and plot tweaks are committed locally only, not pushed.
 - Upstream code under `src/` is never edited in place. Our changes go in `scripts/`, `hpc/` and (later) `patches/`.
 - Figures: line plots only, minimal and clean. No titles or explanatory text; axis labels with units, and a legend only if
   there is more than one line.
