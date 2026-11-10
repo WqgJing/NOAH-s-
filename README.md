@@ -48,18 +48,45 @@ from MODIS LST. The design discussion is in `../tasks/todo.md` (2026-11-10 secti
   - Top-soil temperature on 2 Jan 00:00-07:30 vs the tutorial run log: max difference 0.10 K (tutorial options) and 0.27 K
     (shipped options). The remainder is most likely the tutorial's older release: its namelist lacks several v5.2 options.
   - Year: ET about 720 mm, Jun-Aug mean LH 105 W m-2, TRAD 247-310 K. The first output step carries -9999 fill values (masked).
-- Cost: hrldas.exe takes 63 s per point-year. The driver's own timer reports SFLX (the land-model physics) as 0.00 s, so the time
-  is file I/O (17,520 half-hourly forcing files plus outputs and restarts), not physics. For fitting s*, forcing must be kept in
-  memory or the vector mode used.
+- Cost: hrldas.exe takes 63-72 s per point-year, of which the land-model physics is only 1.3-1.4 s (cumulative SFLX timer
+  added in the patch; debug flags -g -fbounds-check). The rest is file I/O (17,520 half-hourly forcing files plus outputs).
+  CORRECTION: an earlier note read the stock "SFLX: 0.00" as the year's physics time; that timer is reset every step.
+  For fitting s*, forcing must be kept in memory or the vector mode used.
 
 ## Build environment
 - Modules available: gcc, netcdf-fortran/4.6.1-mva2-hdf5-1.14, netcdf-c/4.9.2, mvapich2, openmpi.
 - Build through sbatch, consistent with the other SLURM jobs.
 
-## Planned modifications (none done yet)
-1. BTRAN -> Laio beta(theta_L4_rootzone; s*, theta_w), bypassing the layer sum.
-2. Prescribe soil moisture from L4 each step (surface for the top layer, root zone below); skip Noah-MP's own update.
-3. Soil parameters from L4's Campbell curve (poros, bee, psis) per pixel.
-4. OptDynamicVeg = 8 with observed LAI (Yuan v6.1 / MODIS).
-5. ERA5 hourly forcing (tower forcing first at flux sites); TemperatureRadSfc output at the MODIS view time.
-6. Nuisance parameters: LST offset, conductance scale, soil-resistance scale, roughness scale.
+## Our modifications (patches/noahmp_sstar.patch, 15 files; every change is marked "[noah/ s*]" in the code)
+Work flow: `scripts/prepare_build.sh` (build/hrldas = src/hrldas + patch) -> `sbatch hpc/build_patched.slurm`.
+After editing build/hrldas: `scripts/make_patch.sh` re-exports the patch. src/ is never edited.
+
+| Namelist switch (&NOAHLSM_OFFLINE) | Default (= stock) | When on |
+|---|---|---|
+| `BTR_OPTION = 4` | 1 | BTRAN = Laio beta = clip((theta_root - LAIO_SWILT)/(LAIO_SSTAR - LAIO_SWILT), 0, 1). theta_root = prescribed root zone (below), else the thickness-weighted root-layer mean liquid water. Uptake spread by layer thickness. |
+| `LAIO_SSTAR`, `LAIO_SWILT` | -9999 (must be set for option 4) | s*, s_w [m3/m3]; checked 0 <= s_w < s* <= 1 |
+| `PRESCRIBE_SOIL_MOISTURE = 1` | 0 | each step before the physics: layer 1 <- forcing SMSURF, layers 2..NSOIL <- SMROOT (existing ice kept) |
+| `NUIS_GS_SCALE` | 1.0 | Vcmax25 x s (Ball-Berry), minimum stomatal resistance / s (Jarvis) |
+| `NUIS_RSURF_SCALE` | 1.0 | soil evaporation resistance x s (soil formula, before snow mixing) |
+| `NUIS_Z0_SCALE` | 1.0 | canopy roughness length, canopy top and bottom height x s |
+| (always) | - | new output `BTRAN`; cumulative physics timer `SFLXtot` in the log |
+
+No code is needed for observed LAI (`DYNAMIC_VEG_OPTION = 8`: LAI from each forcing file, vegetation fraction from LAI) or for
+L4 soil parameters (`SOIL_DATA_OPTION = 4` + `SPATIAL_FILENAME`).
+
+Tests (`sbatch hpc/test_patched_bondville.slurm`, Bondville 1998; all PASS, 2026-11-10):
+1. All switches off vs the stock run: bit-identical (36,135 variable-files, 0 differences).
+2. `BTR_OPTION 4` without prescription: BTRAN = Laio(start-of-step root-zone liquid water) to 2.8e-7 (float32). Cropland has 3
+   root layers in the MODIS table (0-1 m, the same depth as the L4 root zone).
+3. Prescription: BTRAN = Laio(prescribed SMROOT) exactly (lag 0); SOIL_M follows SMSURF / SMROOT (median 0.0003 / 0.0001).
+4. Nuisance directions (Jun-Aug daytime): conductance x2 -> transpiration +21 %, TRAD -0.39 K; soil resistance x2 -> soil
+   evaporation -6 %; roughness x2 -> TRAD -0.06 K.
+
+## Inputs for real pixels (scripts/make_pixel_forcing.py, hpc/run_pixel.slurm)
+- ERA5 hourly (clima/forcing_global/era5_hourly; longwave msdwlwrf and precipitation mtpr added 2026-11-10 with
+  clima/forcing_data/scripts/fetch_era5_noah.slurm), SW/LW centred on the hour, precipitation applied over the next hour.
+- SMAP L4 SPL4SMGP/008 3-hourly surface + root zone at the test pixels (scripts/fetch_l4_points.py), Yuan v6.1 LAI.
+- Soil: L4 Campbell (porosity, b, psi_s) in soil_spatial.nc; wilting -153 m and field capacity -3.36 m on that curve; quartz /
+  Ks placeholders from the loam table class (theta is prescribed; quartz affects soil heat conduction, to revisit).
+- Laio: s* = bank theta_star_ref, s_w = bank theta_w.
+- MODIS Aqua/Terra daily LST at the same pixels (scripts/fetch_lst_points.py) for the TRAD comparison (scripts/compare_trad_lst.py).
