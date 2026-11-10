@@ -1,0 +1,19 @@
+# build products
+*.o
+*.mod
+*.exe
+*.a
+
+# model output, logs and large data stay out of git
+output/
+logs/
+data/
+*.nc
+*.npz
+*.npy
+*.LDASOUT_DOMAIN*
+
+# editor / OS clutter
+*~
+.DS_Store
+__pycache__/
