@@ -1,3 +1,4 @@
 [submodule "src/hrldas"]
 	path = src/hrldas
 	url = https://github.com/NCAR/hrldas
+	ignore = untracked

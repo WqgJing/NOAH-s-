@@ -17,3 +17,13 @@ data/
 *~
 .DS_Store
 __pycache__/
+
+# HRLDAS forcing / output / restart files (no .nc extension)
+*.LDASIN_DOMAIN*
+RESTART.*_DOMAIN*
+runs/**/forcing/
+runs/**/*.TBL
+runs/**/hrldas.log
+runs/**/hrldas.exe
+runs/**/create_point_data.log
+runs/reference/
