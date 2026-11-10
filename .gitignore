@@ -27,3 +27,6 @@ runs/**/hrldas.log
 runs/**/hrldas.exe
 runs/**/create_point_data.log
 runs/reference/
+
+# patched build copy of src/hrldas (re-creatable: scripts/prepare_build.sh)
+build/

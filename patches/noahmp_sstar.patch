@@ -1,0 +1,626 @@
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/hrldas/IO_code/module_NoahMP_hrldas_driver.F build/hrldas/hrldas/IO_code/module_NoahMP_hrldas_driver.F
+--- src/hrldas/hrldas/IO_code/module_NoahMP_hrldas_driver.F	2026-11-10 16:04:41.934501216 -0500
++++ build/hrldas/hrldas/IO_code/module_NoahMP_hrldas_driver.F	2026-11-10 16:57:35.173748410 -0500
+@@ -813,6 +813,7 @@
+      implicit  none
+      integer :: itime          ! timestep loop
+      integer :: I, J, K
++     real(kind=kind_noahmp) :: SM_PRESC, SM_ICE   ! [noah/ s*] prescribed total soil moisture, kept ice content
+ 
+ !---------------------------------------------------------------------------------
+ ! Read the forcing data.
+@@ -853,7 +854,8 @@
+                              NoahmpIO%SWDOWN, NoahmpIO%RAINBL, NoahmpIO%SNOWBL,       &
+                              NoahmpIO%VEGFRA, NoahmpIO%update_veg, NoahmpIO%LAI,      &
+                              NoahmpIO%update_lai, NoahmpIO%reset_spinup_date,         &
+-                             NoahmpIO%startdate, NoahmpIO%RadSwDirFrac, NoahmpIO%RadSwVisFrac)
++                             NoahmpIO%startdate, NoahmpIO%RadSwDirFrac, NoahmpIO%RadSwVisFrac, &
++                             NoahmpIO%PRESCRIBE_SM_OPT == 1, NoahmpIO%SMSURF_PRESC, NoahmpIO%SMROOT_PRESC)   ! [noah/ s*]
+                              
+              NoahmpIO%VEGFRA = NoahmpIO%VEGFRA * 100.0
+      else
+@@ -881,7 +883,8 @@
+                           NoahmpIO%V_PHY(:,1,:),NoahmpIO%P8W(:,1,:), NoahmpIO%GLW, NoahmpIO%SWDOWN,          &
+                           NoahmpIO%RAINBL, NoahmpIO%SNOWBL, NoahmpIO%VEGFRA, NoahmpIO%update_veg,            &
+                           NoahmpIO%LAI, NoahmpIO%update_lai, NoahmpIO%reset_spinup_date, NoahmpIO%startdate, &
+-                          NoahmpIO%RadSwDirFrac, NoahmpIO%RadSwVisFrac )    
++                          NoahmpIO%RadSwDirFrac, NoahmpIO%RadSwVisFrac,                                      &
++                          NoahmpIO%PRESCRIBE_SM_OPT == 1, NoahmpIO%SMSURF_PRESC, NoahmpIO%SMROOT_PRESC )   ! [noah/ s*]
+           
+        if(maxval(NoahmpIO%VEGFRA) <= 1 ) then
+            NoahmpIO%VEGFRA = NoahmpIO%VEGFRA * 100.   ! added for input vegfra as a fraction (0~1)
+@@ -1027,6 +1030,35 @@
+ ! Call to Noah-MP driver same as surface_driver
+ !------------------------------------------------------------------------
+ 
++!------------------------------------------------------------------------
++! [noah/ s*] Prescribe soil moisture (PRESCRIBE_SOIL_MOISTURE = 1), just before the physics of this step:
++!   layer 1 <- SMSURF (e.g. SMAP L4 surface), layers 2..NSOIL <- SMROOT (e.g. SMAP L4 root zone).
++!   Total water is replaced; the existing ice is kept (capped at the new total); liquid = total - ice.
++!   Values outside [0, 1] (missing) leave that layer unchanged. Land points only.
++!   The model's own water update during the step is overwritten at the next step.
++!------------------------------------------------------------------------
++         if ( NoahmpIO%PRESCRIBE_SM_OPT == 1 ) then
++            do J = NoahmpIO%YSTART, NoahmpIO%YEND
++               do I = NoahmpIO%XSTART, NoahmpIO%XEND
++                  if ( (NoahmpIO%IVGTYP(I,J) /= NoahmpIO%ISWATER) .and. (NoahmpIO%IVGTYP(I,J) /= NoahmpIO%ISICE) ) then
++                     do K = 1, NoahmpIO%NSOIL
++                        if ( K == 1 ) then
++                           SM_PRESC = NoahmpIO%SMSURF_PRESC(I,J)
++                        else
++                           SM_PRESC = NoahmpIO%SMROOT_PRESC(I,J)
++                        endif
++                        if ( (SM_PRESC >= 0.0) .and. (SM_PRESC <= 1.0) ) then
++                           SM_ICE = max(0.0, NoahmpIO%SMOIS(I,K,J) - NoahmpIO%SH2O(I,K,J))
++                           SM_ICE = min(SM_ICE, SM_PRESC)
++                           NoahmpIO%SMOIS(I,K,J) = SM_PRESC
++                           NoahmpIO%SH2O (I,K,J) = SM_PRESC - SM_ICE
++                        endif
++                     enddo
++                  endif
++               enddo
++            enddo
++         endif
++
+          NoahmpIO%sflx_count_sum = 0      ! Timing
+          NoahmpIO%ITIMESTEP      = ITIME  ! update time step counter
+ 
+@@ -1038,6 +1070,7 @@
+ 
+          call system_clock(count=NoahmpIO%count_after_sflx, count_rate=NoahmpIO%clock_rate)
+          NoahmpIO%sflx_count_sum = NoahmpIO%sflx_count_sum + ( NoahmpIO%count_after_sflx - NoahmpIO%count_before_sflx )
++         NoahmpIO%sflx_count_total = NoahmpIO%sflx_count_total + ( NoahmpIO%count_after_sflx - NoahmpIO%count_before_sflx )  ! [noah/ s*]
+ 
+          IF(NoahmpIO%SF_URBAN_PHYSICS == 2 .or. NoahmpIO%SF_URBAN_PHYSICS == 3) THEN  ! BEP or BEM urban models
+            NoahmpIO%dz8w  = NoahmpIO%dz_urban
+@@ -1165,6 +1198,7 @@
+               call add_to_output(NoahmpIO%ISLTYP     , "ISLTYP"  , "Dominant soil category"               , "category"              )
+               call add_to_output(NoahmpIO%FVEGXY     , "FVEG"    , "Green Vegetation Fraction"            , "-"                     )
+               call add_to_output(NoahmpIO%LAI        , "LAI"     , "Leaf area index"                      , "m2/m2"                 )
++              call add_to_output(NoahmpIO%BTRANXY    , "BTRAN"   , "Soil water transpiration factor"      , "-"                     )  ! [noah/ s*]
+               call add_to_output(NoahmpIO%XSAIXY     , "SAI"     , "Stem area index"                      , "m2/m2"                 )
+             ! Forcing
+               call add_to_output(NoahmpIO%SWDOWN     , "SWFORC"  , "Shortwave forcing"                    , "W/m2"                  )
+@@ -1426,9 +1460,10 @@
+      call system_clock(count=NoahmpIO%clock_count_2, count_rate=NoahmpIO%clock_rate)
+      NoahmpIO%timing_sum = NoahmpIO%timing_sum + &
+                         float(NoahmpIO%clock_count_2-NoahmpIO%clock_count_1)/float(NoahmpIO%clock_rate)
+-     write(*,'("    Timing: ",f6.2," Cumulative:  ", f10.2, "  SFLX: ", f6.2 )') &
++     write(*,'("    Timing: ",f6.2," Cumulative:  ", f10.2, "  SFLX: ", f6.2, "  SFLXtot: ", f10.3 )') &
+           float(NoahmpIO%clock_count_2-NoahmpIO%clock_count_1)/float(NoahmpIO%clock_rate), &
+-          NoahmpIO%timing_sum, real(NoahmpIO%sflx_count_sum) / real(NoahmpIO%clock_rate)
++          NoahmpIO%timing_sum, real(NoahmpIO%sflx_count_sum) / real(NoahmpIO%clock_rate), &
++          real(NoahmpIO%sflx_count_total) / real(NoahmpIO%clock_rate)   ! [noah/ s*] cumulative physics time [s]
+     
+      NoahmpIO%clock_count_1 = NoahmpIO%clock_count_2
+ 
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/hrldas/IO_code/module_hrldas_netcdf_io.F build/hrldas/hrldas/IO_code/module_hrldas_netcdf_io.F
+--- src/hrldas/hrldas/IO_code/module_hrldas_netcdf_io.F	2026-11-10 16:04:41.938019616 -0500
++++ build/hrldas/hrldas/IO_code/module_hrldas_netcdf_io.F	2026-11-10 16:59:49.894131212 -0500
+@@ -31,6 +31,8 @@
+      real(kind=kind_noahmp), pointer, dimension(:,:) :: radvis
+      real(kind=kind_noahmp), pointer, dimension(:,:) :: vegfra
+      real(kind=kind_noahmp), pointer, dimension(:,:) :: lai
++     real(kind=kind_noahmp), pointer, dimension(:,:) :: smsurf   ! [noah/ s*] prescribed surface soil moisture
++     real(kind=kind_noahmp), pointer, dimension(:,:) :: smroot   ! [noah/ s*] prescribed root-zone soil moisture
+   end type inputstruct
+ 
+   type inputstructa
+@@ -2132,7 +2134,7 @@
+        forcing_name_LW,forcing_name_SW,forcing_name_PR,forcing_name_SN, &
+        forcing_name_DirFrac, forcing_name_VisFrac, &
+        t,q,u,v,p,lw,sw,pcp,snow,vegfra,update_veg,lai,update_lai,reset_spinup_date,startdate,&
+-       raddir,radvis)
++       raddir,radvis,update_sm,smsurf,smroot)
+ 
+     use kwm_string_utilities
+     implicit none
+@@ -2168,6 +2170,9 @@
+     real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(out)   :: raddir
+     real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(out)   :: radvis
+     logical,                            intent(in)  :: update_veg, update_lai  ! Barlage v3.7: for veg read control
++    logical,                            intent(in)  :: update_sm               ! [noah/ s*] read SMSURF/SMROOT (prescribed soil moisture)
++    real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(inout) :: smsurf  ! [noah/ s*]
++    real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(inout) :: smroot  ! [noah/ s*]
+     logical,                                              intent(inout) :: reset_spinup_date
+     character(len=256) :: flnm
+     character(len=256) :: units
+@@ -2178,10 +2183,10 @@
+ 
+     type(inputstruct) :: lastread = inputstruct("0000-00-00_00:00:00", &
+          null(), null(), null(), null(), null(), null(), null(), null(), null(), null(), null(), &
+-         null(), null())
++         null(), null(), null(), null())    ! [noah/ s*] +2 for smsurf, smroot
+     type(inputstruct) :: nextread = inputstruct("0000-00-00_00:00:00", &
+          null(), null(), null(), null(), null(), null(), null(), null(), null(), null(), null(), &
+-         null(), null())
++         null(), null(), null(), null())    ! [noah/ s*] +2 for smsurf, smroot
+ 
+     if(reset_spinup_date) lastread%read_date = startdate
+     reset_spinup_date = .false.
+@@ -2315,7 +2320,13 @@
+          endif
+ 
+        endif
+-	 
++
++       ! [noah/ s*] prescribed soil moisture: required in every forcing file when PRESCRIBE_SOIL_MOISTURE = 1
++       if(update_sm) then
++         call get_2d_netcdf("SMSURF",  ncid, nextread%smsurf, units, xstart, xend, ystart, yend, FATAL, ierr)
++         call get_2d_netcdf("SMROOT",  ncid, nextread%smroot, units, xstart, xend, ystart, yend, FATAL, ierr)
++       endif
++
+ #ifdef MPP_LAND
+        if(my_id .eq. IO_id) &
+ #endif
+@@ -2339,7 +2350,8 @@
+ 
+        ! Fill the t, q, u, v, ... arrays with data from the nextread structure.
+        call copyfrom_inputstruct(nextread, t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, &
+-                                 update_veg, update_lai, xstart, xend, ystart, yend, raddir, radvis)
++                                 update_veg, update_lai, xstart, xend, ystart, yend, raddir, radvis, &
++                                 update_sm, smsurf, smroot)
+ 
+        ! Clear the old lastread data
+        call clear_inputstruct(lastread)
+@@ -2363,7 +2375,8 @@
+ 
+        ! Fill the t, q, u, v, ... arrays with data interpolated between lastread and nextread times.
+        call interpolate_inputstruct(lastread, nextread, target_date, &
+-            t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, update_veg, update_lai, xstart, xend, ystart, yend,raddir,radvis)
++            t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, update_veg, update_lai, xstart, xend, ystart, yend,raddir,radvis, &
++            update_sm, smsurf, smroot)
+ 
+     else
+ 
+@@ -2646,6 +2659,12 @@
+     allocate(instruct%radvis (xstart:xend,ystart:yend), stat=allostat )
+     if (allostat/=0) stop "Problem allocating instruct%RadVis"
+ 
++    allocate(instruct%smsurf (xstart:xend,ystart:yend), stat=allostat )   ! [noah/ s*]
++    if (allostat/=0) stop "Problem allocating instruct%smsurf"
++
++    allocate(instruct%smroot (xstart:xend,ystart:yend), stat=allostat )   ! [noah/ s*]
++    if (allostat/=0) stop "Problem allocating instruct%smroot"
++
+ #ifdef MPP_LAND
+     instruct%lai = 0.0
+ #endif
+@@ -2698,12 +2717,15 @@
+ !---------------------------------------------------------------------------------------------------------
+ 
+   subroutine copyfrom_inputstruct(instruct, t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, &
+-                                  update_veg, update_lai, xstart, xend, ystart, yend, raddir, radvis)
++                                  update_veg, update_lai, xstart, xend, ystart, yend, raddir, radvis, &
++                                  update_sm, smsurf, smroot)
+     implicit none
+     type(inputstruct), intent(in) :: instruct
+     integer,           intent(in) :: xstart, xend, ystart, yend
+     logical,           intent(in)  :: update_veg, update_lai  ! Barlage v3.7: for veg read control
++    logical,           intent(in)  :: update_sm               ! [noah/ s*]
+     real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(out) :: t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, raddir, radvis
++    real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(inout) :: smsurf, smroot   ! [noah/ s*]
+     t    = instruct%t
+     q    = instruct%q
+     u    = instruct%u
+@@ -2718,6 +2740,10 @@
+ 
+     if(update_veg) vegfra = instruct%vegfra
+     if(update_lai)   lai  = instruct%lai
++    if(update_sm) then                       ! [noah/ s*]
++       smsurf = instruct%smsurf
++       smroot = instruct%smroot
++    endif
+ 
+   end subroutine copyfrom_inputstruct
+ 
+@@ -2725,14 +2751,17 @@
+ !---------------------------------------------------------------------------------------------------------
+ 
+   subroutine interpolate_inputstruct(instructA, instructB, target_date, &
+-       t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, update_veg, update_lai, xstart, xend, ystart, yend, raddir, radvis)
++       t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, update_veg, update_lai, xstart, xend, ystart, yend, raddir, radvis, &
++       update_sm, smsurf, smroot)
+ 
+     implicit none
+     type(inputstruct),                        intent(in)  :: instructA, instructB
+     character(len=19),                        intent(in)  :: target_date
+     integer,                                  intent(in)  :: xstart, xend, ystart, yend
+     logical,                                  intent(in)  :: update_veg, update_lai  ! Barlage v3.7: for veg read control
++    logical,                                  intent(in)  :: update_sm               ! [noah/ s*]
+     real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(out) :: t, q, u, v, p, lw, sw, pcp, snow, vegfra, lai, raddir, radvis
++    real(kind=kind_noahmp), dimension(xstart:xend,ystart:yend), intent(inout) :: smsurf, smroot   ! [noah/ s*]
+ 
+     integer :: idts, idts2
+     real(kind=kind_noahmp)    :: fraction
+@@ -2755,6 +2784,10 @@
+ 
+     if(update_veg) vegfra = instructA%vegfra
+     if(update_lai)   lai  = instructA%lai
++    if(update_sm) then                       ! [noah/ s*] linear in time, like T and radiation
++       smsurf = ( instructA%smsurf * fraction ) + ( instructB%smsurf * (1.0-fraction) )
++       smroot = ( instructA%smroot * fraction ) + ( instructB%smroot * (1.0-fraction) )
++    endif
+ 
+   end subroutine interpolate_inputstruct
+ 
+@@ -2830,6 +2863,16 @@
+        deallocate(instruct%lai)
+        nullify(instruct%lai)
+     endif
++
++    if (associated(instruct%smsurf)) then   ! [noah/ s*]
++       deallocate(instruct%smsurf)
++       nullify(instruct%smsurf)
++    endif
++
++    if (associated(instruct%smroot)) then   ! [noah/ s*]
++       deallocate(instruct%smroot)
++       nullify(instruct%smroot)
++    endif
+   end subroutine clear_inputstruct
+ 
+ !---------------------------------------------------------------------------------------------------------
+@@ -2906,6 +2949,8 @@
+     nullify(instruct%radvis)
+     nullify(instruct%vegfra)
+     nullify(instruct%lai)
++    nullify(instruct%smsurf)   ! [noah/ s*]
++    nullify(instruct%smroot)   ! [noah/ s*]
+ 
+   end subroutine nullify_inputstruct
+ 
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/BiochemVarInTransferMod.F90 build/hrldas/noahmp/drivers/hrldas/BiochemVarInTransferMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/BiochemVarInTransferMod.F90	2026-11-10 16:04:45.159836849 -0500
++++ build/hrldas/noahmp/drivers/hrldas/BiochemVarInTransferMod.F90	2026-11-10 16:55:46.777853685 -0500
+@@ -51,7 +51,7 @@
+     ! biochem parameter variables
+     noahmp%biochem%param%NitrogenConcFoliageMax     = NoahmpIO%FOLNMX_TABLE (VegType)
+     noahmp%biochem%param%QuantumEfficiency25C       = NoahmpIO%QE25_TABLE   (VegType)
+-    noahmp%biochem%param%CarboxylRateMax25C         = NoahmpIO%VCMX25_TABLE (VegType)
++    noahmp%biochem%param%CarboxylRateMax25C         = NoahmpIO%VCMX25_TABLE (VegType) * NoahmpIO%NUIS_GS_SCALE  ! [noah/ s*] Ball-Berry (1 = stock)
+     noahmp%biochem%param%CarboxylRateMaxQ10         = NoahmpIO%AVCMX_TABLE  (VegType)
+     noahmp%biochem%param%PhotosynPathC3             = NoahmpIO%C3PSN_TABLE  (VegType)
+     noahmp%biochem%param%SlopeConductToPhotosyn     = NoahmpIO%MP_TABLE     (VegType)
+@@ -81,7 +81,7 @@
+        noahmp%biochem%param%DateHarvest             = NoahmpIO%HSDAY_TABLE    (CropType)
+        noahmp%biochem%param%NitrogenConcFoliageMax  = NoahmpIO%FOLNMXI_TABLE  (CropType)
+        noahmp%biochem%param%QuantumEfficiency25C    = NoahmpIO%QE25I_TABLE    (CropType)
+-       noahmp%biochem%param%CarboxylRateMax25C      = NoahmpIO%VCMX25I_TABLE  (CropType)
++       noahmp%biochem%param%CarboxylRateMax25C      = NoahmpIO%VCMX25I_TABLE  (CropType) * NoahmpIO%NUIS_GS_SCALE  ! [noah/ s*]
+        noahmp%biochem%param%CarboxylRateMaxQ10      = NoahmpIO%AVCMXI_TABLE   (CropType)
+        noahmp%biochem%param%PhotosynPathC3          = NoahmpIO%C3PSNI_TABLE   (CropType)
+        noahmp%biochem%param%SlopeConductToPhotosyn  = NoahmpIO%MPI_TABLE      (CropType)
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90 build/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90	2026-11-10 16:04:45.171329955 -0500
++++ build/hrldas/noahmp/drivers/hrldas/EnergyVarInTransferMod.F90	2026-11-10 16:55:35.168049463 -0500
+@@ -101,12 +101,13 @@
+     noahmp%energy%param%EmissivityIceSfc                          = NoahmpIO%EICE_TABLE
+     noahmp%energy%param%ResistanceSoilExp                         = NoahmpIO%RSURF_EXP_TABLE
+     noahmp%energy%param%ResistanceSnowSfc                         = NoahmpIO%RSURF_SNOW_TABLE
++    noahmp%energy%param%ResistanceGrdEvapScale                    = NoahmpIO%NUIS_RSURF_SCALE  ! [noah/ s*] (1 = stock)
+     noahmp%energy%param%VegFracAnnMax                             = NoahmpIO%GVFMAX(I,J) / 100.0
+     noahmp%energy%param%VegFracGreen                              = NoahmpIO%VEGFRA(I,J) / 100.0
+     noahmp%energy%param%TreeCrownRadius                           = NoahmpIO%RC_TABLE    (VegType)
+-    noahmp%energy%param%HeightCanopyTop                           = NoahmpIO%HVT_TABLE   (VegType)
+-    noahmp%energy%param%HeightCanopyBot                           = NoahmpIO%HVB_TABLE   (VegType)
+-    noahmp%energy%param%RoughLenMomVeg                            = NoahmpIO%Z0MVT_TABLE (VegType)
++    noahmp%energy%param%HeightCanopyTop                           = NoahmpIO%HVT_TABLE   (VegType) * NoahmpIO%NUIS_Z0_SCALE  ! [noah/ s*] scale (1 = stock)
++    noahmp%energy%param%HeightCanopyBot                           = NoahmpIO%HVB_TABLE   (VegType) * NoahmpIO%NUIS_Z0_SCALE  ! [noah/ s*]
++    noahmp%energy%param%RoughLenMomVeg                            = NoahmpIO%Z0MVT_TABLE (VegType) * NoahmpIO%NUIS_Z0_SCALE  ! [noah/ s*]
+     noahmp%energy%param%CanopyWindExtFac                          = NoahmpIO%CWPVT_TABLE (VegType)
+     noahmp%energy%param%TreeDensity                               = NoahmpIO%DEN_TABLE   (VegType)
+     noahmp%energy%param%CanopyOrientIndex                         = NoahmpIO%XL_TABLE    (VegType)
+@@ -116,7 +117,7 @@
+     noahmp%energy%param%Co2MmConstQ10                             = NoahmpIO%AKC_TABLE   (VegType)
+     noahmp%energy%param%O2MmConstQ10                              = NoahmpIO%AKO_TABLE   (VegType)
+     noahmp%energy%param%RadiationStressFac                        = NoahmpIO%RGL_TABLE   (VegType)
+-    noahmp%energy%param%ResistanceStomataMin                      = NoahmpIO%RS_TABLE    (VegType)
++    noahmp%energy%param%ResistanceStomataMin                      = NoahmpIO%RS_TABLE    (VegType) / NoahmpIO%NUIS_GS_SCALE  ! [noah/ s*] Jarvis (1 = stock)
+     noahmp%energy%param%ResistanceStomataMax                      = NoahmpIO%RSMAX_TABLE (VegType)
+     noahmp%energy%param%AirTempOptimTransp                        = NoahmpIO%TOPT_TABLE  (VegType)
+     noahmp%energy%param%VaporPresDeficitFac                       = NoahmpIO%HS_TABLE    (VegType)
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/NoahmpIOVarInitMod.F90 build/hrldas/noahmp/drivers/hrldas/NoahmpIOVarInitMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/NoahmpIOVarInitMod.F90	2026-11-10 16:04:45.195629315 -0500
++++ build/hrldas/noahmp/drivers/hrldas/NoahmpIOVarInitMod.F90	2026-11-10 16:54:38.621005937 -0500
+@@ -175,6 +175,9 @@
+     if ( .not. allocated (NoahmpIO%STBLCPXY)  ) allocate ( NoahmpIO%STBLCPXY   (XSTART:XEND,               YSTART:YEND) ) ! stable carbon in deep soil [g/m2]
+     if ( .not. allocated (NoahmpIO%FASTCPXY)  ) allocate ( NoahmpIO%FASTCPXY   (XSTART:XEND,               YSTART:YEND) ) ! short-lived carbon, shallow soil [g/m2]
+     if ( .not. allocated (NoahmpIO%LAI)       ) allocate ( NoahmpIO%LAI        (XSTART:XEND,               YSTART:YEND) ) ! leaf area index
++    if ( .not. allocated (NoahmpIO%SMSURF_PRESC) ) allocate ( NoahmpIO%SMSURF_PRESC (XSTART:XEND,          YSTART:YEND) ) ! [noah/ s*]
++    if ( .not. allocated (NoahmpIO%SMROOT_PRESC) ) allocate ( NoahmpIO%SMROOT_PRESC (XSTART:XEND,          YSTART:YEND) ) ! [noah/ s*]
++    if ( .not. allocated (NoahmpIO%BTRANXY)   ) allocate ( NoahmpIO%BTRANXY    (XSTART:XEND,               YSTART:YEND) ) ! [noah/ s*]
+     if ( .not. allocated (NoahmpIO%XSAIXY)    ) allocate ( NoahmpIO%XSAIXY     (XSTART:XEND,               YSTART:YEND) ) ! stem area index
+     if ( .not. allocated (NoahmpIO%TAUSSXY)   ) allocate ( NoahmpIO%TAUSSXY    (XSTART:XEND,               YSTART:YEND) ) ! snow age factor
+     if ( .not. allocated (NoahmpIO%TSNOXY)    ) allocate ( NoahmpIO%TSNOXY     (XSTART:XEND,-NSNOW+1:0,    YSTART:YEND) ) ! snow temperature [K]
+@@ -637,6 +640,9 @@
+     NoahmpIO%STBLCPXY        = undefined_real
+     NoahmpIO%FASTCPXY        = undefined_real
+     NoahmpIO%LAI             = undefined_real
++    NoahmpIO%SMSURF_PRESC    = undefined_real   ! [noah/ s*]
++    NoahmpIO%SMROOT_PRESC    = undefined_real   ! [noah/ s*]
++    NoahmpIO%BTRANXY         = undefined_real   ! [noah/ s*]
+     NoahmpIO%XSAIXY          = undefined_real
+     NoahmpIO%XLONG           = undefined_real
+     NoahmpIO%SEAICE          = undefined_real
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/NoahmpIOVarType.F90 build/hrldas/noahmp/drivers/hrldas/NoahmpIOVarType.F90
+--- src/hrldas/noahmp/drivers/hrldas/NoahmpIOVarType.F90	2026-11-10 16:04:45.199373891 -0500
++++ build/hrldas/noahmp/drivers/hrldas/NoahmpIOVarType.F90	2026-11-10 16:54:38.568743833 -0500
+@@ -41,7 +41,13 @@
+     integer                                                ::  URBTYPE_beg         ! urban type start number - 1
+     integer                                                ::  IOPT_DVEG           ! dynamic vegetation   
+     integer                                                ::  IOPT_CRS            ! canopy stomatal resistance (1-> Ball-Berry; 2->Jarvis)   
+-    integer                                                ::  IOPT_BTR            ! soil moisture factor for stomatal resistance (1-> Noah; 2-> CLM; 3-> SSiB)
++    integer                                                ::  IOPT_BTR            ! soil moisture factor for stomatal resistance (1-> Noah; 2-> CLM; 3-> SSiB; 4-> [noah/ s*] Laio)
++    integer                                                ::  PRESCRIBE_SM_OPT    ! [noah/ s*] 1 -> prescribe soil moisture from forcing SMSURF/SMROOT each step (0 = stock)
++    real(kind=kind_noahmp)                                 ::  LAIO_SSTAR          ! [noah/ s*] Laio s* for IOPT_BTR = 4 [m3/m3]
++    real(kind=kind_noahmp)                                 ::  LAIO_SWILT          ! [noah/ s*] Laio s_w for IOPT_BTR = 4 [m3/m3]
++    real(kind=kind_noahmp)                                 ::  NUIS_GS_SCALE       ! [noah/ s*] multiplier on stomatal conductance capacity (1 = stock)
++    real(kind=kind_noahmp)                                 ::  NUIS_RSURF_SCALE    ! [noah/ s*] multiplier on soil evaporation resistance (1 = stock)
++    real(kind=kind_noahmp)                                 ::  NUIS_Z0_SCALE       ! [noah/ s*] multiplier on canopy roughness length and height (1 = stock)
+     integer                                                ::  IOPT_RUNSRF         ! surface runoff and groundwater (1->SIMGM; 2->SIMTOP; 3->Schaake96; 4->BATS)
+     integer                                                ::  IOPT_RUNSUB         ! subsurface runoff option
+     integer                                                ::  IOPT_SFC            ! surface layer drag coeff (CH & CM) (1->M-O; 2->Chen97)
+@@ -219,6 +225,9 @@
+     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  STBLCPXY            ! stable carbon in deep soil [g/m2]
+     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  FASTCPXY            ! short-lived carbon, shallow soil [g/m2]
+     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  LAI                 ! leaf area index
++    real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  SMSURF_PRESC        ! [noah/ s*] prescribed surface soil moisture from forcing [m3/m3]
++    real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  SMROOT_PRESC        ! [noah/ s*] prescribed root-zone soil moisture from forcing [m3/m3]
++    real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  BTRANXY             ! [noah/ s*] soil water transpiration factor BTRAN (output only)
+     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  XSAIXY              ! stem area index
+     real(kind=kind_noahmp), allocatable, dimension(:,:)    ::  TAUSSXY             ! snow age factor
+ 
+@@ -660,6 +669,7 @@
+     integer                                                ::  clock_rate    = 0
+     real(kind=kind_noahmp)                                 ::  timing_sum    = 0.0
+     integer                                                ::  sflx_count_sum
++    integer(kind=8)                                        ::  sflx_count_total = 0 ! [noah/ s*] cumulative physics clock counts (diagnostic)
+     integer                                                ::  count_before_sflx
+     integer                                                ::  count_after_sflx
+ 
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/NoahmpReadNamelistMod.F90 build/hrldas/noahmp/drivers/hrldas/NoahmpReadNamelistMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/NoahmpReadNamelistMod.F90	2026-11-10 16:04:45.206908426 -0500
++++ build/hrldas/noahmp/drivers/hrldas/NoahmpReadNamelistMod.F90	2026-11-10 16:55:05.521087301 -0500
+@@ -94,6 +94,13 @@
+     integer                 :: irrigation_option                  = 0 
+     integer                 :: irrigation_method                  = 0
+     integer                 :: dvic_infiltration_option           = 1
++    ! [noah/ s*] additions; these defaults reproduce stock Noah-MP exactly
++    integer                 :: prescribe_soil_moisture            = 0        ! 1: soil moisture from forcing SMSURF (layer 1) / SMROOT (layers 2..NSOIL)
++    real(kind=kind_noahmp)  :: laio_sstar                         = -9999.0  ! Laio s* [m3/m3], needed when BTR_OPTION = 4
++    real(kind=kind_noahmp)  :: laio_swilt                         = -9999.0  ! Laio s_w [m3/m3], needed when BTR_OPTION = 4
++    real(kind=kind_noahmp)  :: nuis_gs_scale                      = 1.0      ! multiplier on stomatal conductance capacity
++    real(kind=kind_noahmp)  :: nuis_rsurf_scale                   = 1.0      ! multiplier on soil evaporation resistance
++    real(kind=kind_noahmp)  :: nuis_z0_scale                      = 1.0      ! multiplier on canopy roughness length and height
+     integer                 :: tile_drainage_option               = 0
+     integer                 :: wetland_option                     = 0 
+     integer                 :: split_output_count                 = 1
+@@ -171,7 +178,9 @@
+          snicar_use_aerosol, snicar_snowbc_intmix, snicar_snowdust_intmix,                &
+          snicar_use_oc, snicar_aerosol_readtable, forcing_name_BCPHI, forcing_name_BCPHO, &
+          forcing_name_OCPHI, forcing_name_OCPHO, forcing_name_DUST1, forcing_name_DUST2,  &
+-         forcing_name_DUST3, forcing_name_DUST4, forcing_name_DUST5
++         forcing_name_DUST3, forcing_name_DUST4, forcing_name_DUST5,                      &
++         prescribe_soil_moisture, laio_sstar, laio_swilt,                                 &   ! [noah/ s*]
++         nuis_gs_scale, nuis_rsurf_scale, nuis_z0_scale                                       ! [noah/ s*]
+ 
+     !---------------------------------------------------------------
+     !  Initialize namelist variables to dummy values, so we can tell
+@@ -318,6 +327,24 @@
+       endif
+     endif
+ 
++    ! [noah/ s*] checks on the additions
++    if (btr_option == 4) then
++       if ( (laio_swilt < 0.0) .or. (laio_sstar <= laio_swilt) .or. (laio_sstar > 1.0) ) then
++          write(*, *)
++          write(*, '(" ***** Namelist error: BTR_OPTION = 4 (Laio) needs 0 <= LAIO_SWILT < LAIO_SSTAR <= 1")')
++          write(*, '(" *****       LAIO_SSTAR = ", F10.4, "   LAIO_SWILT = ", F10.4)') laio_sstar, laio_swilt
++          stop
++       endif
++    endif
++    if ( (prescribe_soil_moisture /= 0) .and. (prescribe_soil_moisture /= 1) ) then
++       write(*, '(" ***** Namelist error: PRESCRIBE_SOIL_MOISTURE must be 0 or 1")')
++       stop
++    endif
++    if ( (nuis_gs_scale <= 0.0) .or. (nuis_rsurf_scale <= 0.0) .or. (nuis_z0_scale <= 0.0) ) then
++       write(*, '(" ***** Namelist error: NUIS_GS_SCALE, NUIS_RSURF_SCALE, NUIS_Z0_SCALE must be > 0")')
++       stop
++    endif
++
+     if (soil_data_option == 4 .and. spatial_filename == " ") then
+         write(*, *)
+         write(*, '(" ***** Namelist error: ******************************************************")')
+@@ -357,6 +384,12 @@
+     NoahmpIO%IOPT_DVEG                         = dynamic_veg_option 
+     NoahmpIO%IOPT_CRS                          = canopy_stomatal_resistance_option
+     NoahmpIO%IOPT_BTR                          = btr_option
++    NoahmpIO%PRESCRIBE_SM_OPT                  = prescribe_soil_moisture   ! [noah/ s*]
++    NoahmpIO%LAIO_SSTAR                        = laio_sstar                ! [noah/ s*]
++    NoahmpIO%LAIO_SWILT                        = laio_swilt                ! [noah/ s*]
++    NoahmpIO%NUIS_GS_SCALE                     = nuis_gs_scale             ! [noah/ s*]
++    NoahmpIO%NUIS_RSURF_SCALE                  = nuis_rsurf_scale          ! [noah/ s*]
++    NoahmpIO%NUIS_Z0_SCALE                     = nuis_z0_scale             ! [noah/ s*]
+     NoahmpIO%IOPT_RUNSRF                       = surface_runoff_option
+     NoahmpIO%IOPT_RUNSUB                       = subsurface_runoff_option
+     NoahmpIO%IOPT_SFC                          = surface_drag_option
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/WaterVarInTransferMod.F90 build/hrldas/noahmp/drivers/hrldas/WaterVarInTransferMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/WaterVarInTransferMod.F90	2026-11-10 16:04:45.225350662 -0500
++++ build/hrldas/noahmp/drivers/hrldas/WaterVarInTransferMod.F90	2026-11-10 16:55:35.062827758 -0500
+@@ -73,7 +73,13 @@
+     noahmp%water%state%SnowIce     (-NumSnowLayerMax+1:0) = NoahmpIO%SNICEXY    (I,-NumSnowLayerMax+1:0,J)
+     noahmp%water%state%SnowLiqWater(-NumSnowLayerMax+1:0) = NoahmpIO%SNLIQXY    (I,-NumSnowLayerMax+1:0,J)
+     noahmp%water%state%SoilLiqWater      (1:NumSoilLayer) = NoahmpIO%SH2O       (I,1:NumSoilLayer,J)
+-    noahmp%water%state%SoilMoisture      (1:NumSoilLayer) = NoahmpIO%SMOIS      (I,1:NumSoilLayer,J)    
++    noahmp%water%state%SoilMoisture      (1:NumSoilLayer) = NoahmpIO%SMOIS      (I,1:NumSoilLayer,J)
++    ! [noah/ s*] prescribed root-zone soil moisture for BTR_OPTION = 4 (undefined unless PRESCRIBE_SOIL_MOISTURE = 1)
++    if ( NoahmpIO%PRESCRIBE_SM_OPT == 1 ) then
++       noahmp%water%state%SoilMoistureRootPresc = NoahmpIO%SMROOT_PRESC(I,J)
++    else
++       noahmp%water%state%SoilMoistureRootPresc = undefined_real
++    endif
+     noahmp%water%state%SoilMoistureEqui  (1:NumSoilLayer) = NoahmpIO%SMOISEQ    (I,1:NumSoilLayer,J)
+     noahmp%water%state%RechargeGwDeepWT                   = 0.0
+     noahmp%water%state%RechargeGwShallowWT                = 0.0
+@@ -188,6 +194,8 @@
+     noahmp%water%param%DrainTubeRadius                    = NoahmpIO%TD_RADI_TABLE(SoilType(1))
+     noahmp%water%param%DrainWatDepToImperv                = NoahmpIO%TD_D_TABLE(SoilType(1))
+     noahmp%water%param%NumSoilLayerRoot                   = NoahmpIO%NROOT_TABLE(VegType)
++    noahmp%water%param%SoilMoistureLaioStar               = NoahmpIO%LAIO_SSTAR   ! [noah/ s*]
++    noahmp%water%param%SoilMoistureLaioWilt               = NoahmpIO%LAIO_SWILT   ! [noah/ s*]
+     noahmp%water%param%SoilDrainSlope                     = NoahmpIO%SLOPE_TABLE(RunoffSlopeType)
+     noahmp%water%param%WetlandCapMax                      = NoahmpIO%WCAP_TABLE
+ 
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/drivers/hrldas/WaterVarOutTransferMod.F90 build/hrldas/noahmp/drivers/hrldas/WaterVarOutTransferMod.F90
+--- src/hrldas/noahmp/drivers/hrldas/WaterVarOutTransferMod.F90	2026-11-10 16:04:45.228178143 -0500
++++ build/hrldas/noahmp/drivers/hrldas/WaterVarOutTransferMod.F90	2026-11-10 16:55:46.814062888 -0500
+@@ -123,6 +123,7 @@
+     NoahmpIO%DEEPRECHXY  (I,J) = NoahmpIO%DEEPRECHXY(I,J) + noahmp%water%state%RechargeGwDeepWT
+     NoahmpIO%SMCWTDXY    (I,J) = noahmp%water%state%SoilMoistureToWT
+     NoahmpIO%SMOIS       (I,1:NumSoilLayer,J)       = noahmp%water%state%SoilMoisture(1:NumSoilLayer)
++    NoahmpIO%BTRANXY     (I,J)                      = noahmp%water%state%SoilTranspFacAcc   ! [noah/ s*] output only
+     NoahmpIO%SH2O        (I,1:NumSoilLayer,J)       = noahmp%water%state%SoilLiqWater(1:NumSoilLayer)
+     NoahmpIO%ACC_ETRANIXY(I,1:NumSoilLayer,J)       = noahmp%water%flux%TranspWatLossSoilAcc(1:NumSoilLayer)
+     NoahmpIO%SNICEXY     (I,-NumSnowLayerMax+1:0,J) = noahmp%water%state%SnowIce(-NumSnowLayerMax+1:0)
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/src/EnergyVarInitMod.F90 build/hrldas/noahmp/src/EnergyVarInitMod.F90
+--- src/hrldas/noahmp/src/EnergyVarInitMod.F90	2026-11-10 16:04:45.814844316 -0500
++++ build/hrldas/noahmp/src/EnergyVarInitMod.F90	2026-11-10 16:53:57.947008375 -0500
+@@ -364,6 +364,7 @@
+     noahmp%energy%param%EmissivityIceSfc            = undefined_real
+     noahmp%energy%param%ResistanceSoilExp           = undefined_real
+     noahmp%energy%param%ResistanceSnowSfc           = undefined_real
++    noahmp%energy%param%ResistanceGrdEvapScale      = undefined_real   ! [noah/ s*]
+     noahmp%energy%param%VegFracAnnMax               = undefined_real
+     noahmp%energy%param%VegFracGreen                = undefined_real
+     noahmp%energy%param%HeatCapacCanFac             = undefined_real
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/src/EnergyVarType.F90 build/hrldas/noahmp/src/EnergyVarType.F90
+--- src/hrldas/noahmp/src/EnergyVarType.F90	2026-11-10 16:04:45.818147137 -0500
++++ build/hrldas/noahmp/src/EnergyVarType.F90	2026-11-10 16:53:57.919593861 -0500
+@@ -280,6 +280,7 @@
+     real(kind=kind_noahmp) :: EmissivityIceSfc            ! ice surface emissivity
+     real(kind=kind_noahmp) :: ResistanceSoilExp           ! exponent in the shape parameter for soil resistance option 1
+     real(kind=kind_noahmp) :: ResistanceSnowSfc           ! surface resistance for snow [s/m]
++    real(kind=kind_noahmp) :: ResistanceGrdEvapScale      ! [noah/ s*] nuisance multiplier on the soil evaporation resistance (1 = stock)
+     real(kind=kind_noahmp) :: VegFracGreen                ! green vegetation fraction
+     real(kind=kind_noahmp) :: VegFracAnnMax               ! annual maximum vegetation fraction
+     real(kind=kind_noahmp) :: HeatCapacCanFac             ! canopy biomass heat capacity parameter [m]
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/src/ResistanceGroundEvaporationMod.F90 build/hrldas/noahmp/src/ResistanceGroundEvaporationMod.F90
+--- src/hrldas/noahmp/src/ResistanceGroundEvaporationMod.F90	2026-11-10 16:04:45.960175140 -0500
++++ build/hrldas/noahmp/src/ResistanceGroundEvaporationMod.F90	2026-11-10 16:54:12.134052858 -0500
+@@ -39,6 +39,7 @@
+               OptGroundResistanceEvap => noahmp%config%nmlist%OptGroundResistanceEvap ,& ! in,  options for ground resistance to evaporation/sublimation
+               ResistanceSoilExp       => noahmp%energy%param%ResistanceSoilExp        ,& ! in,  exponent in the shape parameter for soil resistance
+               ResistanceSnowSfc       => noahmp%energy%param%ResistanceSnowSfc        ,& ! in,  surface resistance for snow [s/m]
++              ResistanceGrdEvapScale  => noahmp%energy%param%ResistanceGrdEvapScale   ,& ! in,  [noah/ s*] nuisance multiplier on soil resistance
+               SoilMoistureSat         => noahmp%water%param%SoilMoistureSat           ,& ! in,  saturated value of soil moisture [m3/m3]
+               SoilMoistureWilt        => noahmp%water%param%SoilMoistureWilt          ,& ! in,  wilting point soil moisture [m3/m3]
+               SoilExpCoeffB           => noahmp%water%param%SoilExpCoeffB             ,& ! in,  soil B parameter
+@@ -73,9 +74,12 @@
+ 
+        ! Sellers (1992) adjusted to decrease ResistanceGrdEvap for wet soil
+        elseif ( OptGroundResistanceEvap == 3 ) then
+-          ResistanceGrdEvap = SnowCoverFrac * 1.0 + (1.0 - SnowCoverFrac) * exp(8.25 - 6.0*SoilEvapFac) 
++          ResistanceGrdEvap = SnowCoverFrac * 1.0 + (1.0 - SnowCoverFrac) * exp(8.25 - 6.0*SoilEvapFac)
+        endif
+ 
++       ! [noah/ s*] nuisance scale on the soil resistance (default 1.0 = stock); applied before snow weighting and dry cutoff
++       ResistanceGrdEvap = ResistanceGrdEvap * ResistanceGrdEvapScale
++
+        ! SnowCoverFrac weighted; snow ResistanceGrdEvap set in MPTABLE v3.8
+        if ( OptGroundResistanceEvap == 4 ) then
+           ResistanceGrdEvap = 1.0 / (SnowCoverFrac * (1.0/ResistanceSnowSfc) + &
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/src/SoilWaterTranspirationMod.F90 build/hrldas/noahmp/src/SoilWaterTranspirationMod.F90
+--- src/hrldas/noahmp/src/SoilWaterTranspirationMod.F90	2026-11-10 16:04:46.189965920 -0500
++++ build/hrldas/noahmp/src/SoilWaterTranspirationMod.F90	2026-11-10 16:53:35.111273820 -0500
+@@ -28,6 +28,7 @@
+     integer                          :: IndSoil       ! loop index
+     real(kind=kind_noahmp)           :: SoilWetFac    ! temporary variable
+     real(kind=kind_noahmp)           :: MinThr        ! minimum threshold to prevent divided by zero
++    real(kind=kind_noahmp)           :: SoilMoistureRoot ! [noah/ s*] root-zone soil moisture for option 4 [m3/m3]
+ 
+ ! --------------------------------------------------------------------
+     associate(                                                                             &
+@@ -43,6 +44,9 @@
+               SoilMoistureSat           => noahmp%water%param%SoilMoistureSat             ,& ! in,  saturated value of soil moisture [m3/m3]
+               SoilExpCoeffB             => noahmp%water%param%SoilExpCoeffB               ,& ! in,  soil B parameter              
+               SoilLiqWater              => noahmp%water%state%SoilLiqWater                ,& ! in,  soil water content [m3/m3]
++              SoilMoistureLaioStar      => noahmp%water%param%SoilMoistureLaioStar        ,& ! in,  [noah/ s*] Laio s* [m3/m3] (option 4)
++              SoilMoistureLaioWilt      => noahmp%water%param%SoilMoistureLaioWilt        ,& ! in,  [noah/ s*] Laio wilting point [m3/m3] (option 4)
++              SoilMoistureRootPresc     => noahmp%water%state%SoilMoistureRootPresc       ,& ! in,  [noah/ s*] prescribed root-zone soil moisture [m3/m3]
+               SoilTranspFac             => noahmp%water%state%SoilTranspFac               ,& ! out, soil water transpiration factor (0 to 1)
+               SoilTranspFacAcc          => noahmp%water%state%SoilTranspFacAcc            ,& ! out, accumulated soil water transpiration factor (0 to 1)
+               SoilMatPotential          => noahmp%water%state%SoilMatPotential             & ! out, soil matrix potential [m]
+@@ -53,8 +57,31 @@
+     MinThr         = 1.0e-6
+     SoilTranspFacAcc = 0.0
+ 
++    ! [noah/ s*] option 4: Laio et al. (2001) piecewise-linear water stress on ONE root-zone soil moisture,
++    !   beta = 1 above s*, linear to 0 at s_w:  beta = min(1, max(0, (theta_root - s_w) / (s* - s_w)))
++    !   theta_root = prescribed root-zone soil moisture (e.g. SMAP L4) when 0 <= SoilMoistureRootPresc <= 1,
++    !                otherwise the thickness-weighted mean liquid water over the root layers.
++    !   Uptake is spread over the root layers by thickness. Options 1-3 below are unchanged.
++    if ( (SurfaceType == 1) .and. (OptSoilWaterTranspiration == 4) ) then
++       if ( (SoilMoistureRootPresc >= 0.0) .and. (SoilMoistureRootPresc <= 1.0) ) then
++          SoilMoistureRoot = SoilMoistureRootPresc
++       else
++          SoilMoistureRoot = 0.0
++          do IndSoil = 1, NumSoilLayerRoot
++             SoilMoistureRoot = SoilMoistureRoot + SoilLiqWater(IndSoil) * &
++                                ThicknessSnowSoilLayer(IndSoil) / (-DepthSoilLayer(NumSoilLayerRoot))
++          enddo
++       endif
++       SoilTranspFacAcc = min(1.0, max(0.0, (SoilMoistureRoot - SoilMoistureLaioWilt) / &
++                                            (SoilMoistureLaioStar - SoilMoistureLaioWilt)))
++       SoilTranspFacAcc = max(MinThr, SoilTranspFacAcc)
++       do IndSoil = 1, NumSoilLayerRoot
++          SoilTranspFac(IndSoil) = ThicknessSnowSoilLayer(IndSoil) / (-DepthSoilLayer(NumSoilLayerRoot))
++       enddo
++    endif
++
+     ! only for soil point
+-    if ( SurfaceType ==1 ) then
++    if ( (SurfaceType ==1) .and. (OptSoilWaterTranspiration /= 4) ) then
+        do IndSoil = 1, NumSoilLayerRoot
+           if ( OptSoilWaterTranspiration == 1 ) then  ! Noah
+              SoilWetFac                = (SoilLiqWater(IndSoil) - SoilMoistureWilt(IndSoil)) / &
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/src/WaterVarInitMod.F90 build/hrldas/noahmp/src/WaterVarInitMod.F90
+--- src/hrldas/noahmp/src/WaterVarInitMod.F90	2026-11-10 16:04:46.264206265 -0500
++++ build/hrldas/noahmp/src/WaterVarInitMod.F90	2026-11-10 16:53:57.891164016 -0500
+@@ -61,6 +61,7 @@
+     noahmp%water%state%SoilImpervFracMax           = undefined_real
+     noahmp%water%state%SoilMoistureToWT            = undefined_real
+     noahmp%water%state%SoilTranspFacAcc            = undefined_real
++    noahmp%water%state%SoilMoistureRootPresc       = undefined_real   ! [noah/ s*]
+     noahmp%water%state%SoilWaterRootZone           = undefined_real
+     noahmp%water%state%SoilWaterStress             = undefined_real
+     noahmp%water%state%SoilSaturationExcess        = undefined_real
+@@ -301,6 +302,8 @@
+     noahmp%water%param%DrainSoilLayerInd           = undefined_int
+     noahmp%water%param%TileDrainTubeDepth          = undefined_int
+     noahmp%water%param%NumSoilLayerRoot            = undefined_int
++    noahmp%water%param%SoilMoistureLaioStar        = undefined_real   ! [noah/ s*]
++    noahmp%water%param%SoilMoistureLaioWilt        = undefined_real   ! [noah/ s*]
+     noahmp%water%param%IrriStopDayBfHarvest        = undefined_int
+     noahmp%water%param%CanopyLiqHoldCap            = undefined_real
+     noahmp%water%param%SnowCompactBurdenFac        = undefined_real
+diff -ruN -x .git -x '*.o' -x '*.mod' -x '*.f90' -x '*.exe' -x '*.a' -x user_build_options -x '*.log' -x '*.nc' src/hrldas/noahmp/src/WaterVarType.F90 build/hrldas/noahmp/src/WaterVarType.F90
+--- src/hrldas/noahmp/src/WaterVarType.F90	2026-11-10 16:04:46.267268089 -0500
++++ build/hrldas/noahmp/src/WaterVarType.F90	2026-11-10 16:53:57.852388825 -0500
+@@ -132,6 +132,7 @@
+     real(kind=kind_noahmp) :: PrecipAreaFrac             ! fraction of the gridcell that receives precipitation
+     real(kind=kind_noahmp) :: SnowCoverFrac              ! snow cover fraction
+     real(kind=kind_noahmp) :: SoilTranspFacAcc           ! accumulated soil water transpiration factor (0 to 1)
++    real(kind=kind_noahmp) :: SoilMoistureRootPresc      ! [noah/ s*] prescribed root-zone soil moisture [m3/m3] (undefined = not prescribed)
+     real(kind=kind_noahmp) :: FrozenPrecipFrac           ! fraction of frozen precip in total precipitation
+     real(kind=kind_noahmp) :: SoilWaterRootZone          ! root zone soil water
+     real(kind=kind_noahmp) :: SoilWaterStress            ! soil water stress
+@@ -272,6 +273,8 @@
+     real(kind=kind_noahmp) :: SnowWetAgeC2Brun89         ! constant for liquid water grain growth [m3 s-1], from Brun89: corrected for LWC
+     real(kind=kind_noahmp) :: SnowAgeScaleFac            ! arbitrary tuning/scaling factor applied to snow aging rate (-)
+ 
++    real(kind=kind_noahmp)                                :: SoilMoistureLaioStar   ! [noah/ s*] Laio s*, onset of transpiration reduction [m3/m3]
++    real(kind=kind_noahmp)                                :: SoilMoistureLaioWilt   ! [noah/ s*] Laio s_w, transpiration stops [m3/m3]
+     real(kind=kind_noahmp), allocatable, dimension(:)     :: SoilMoistureSat        ! saturated value of soil moisture [m3/m3]
+     real(kind=kind_noahmp), allocatable, dimension(:)     :: SoilMoistureWilt       ! wilting point soil moisture [m3/m3]
+     real(kind=kind_noahmp), allocatable, dimension(:)     :: SoilMoistureFieldCap   ! reference soil moisture (field capacity) [m3/m3]
