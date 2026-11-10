@@ -27,7 +27,29 @@ from MODIS LST. The design discussion is in `../tasks/todo.md` (2026-11-10 secti
 - **Campbell soil parameters**: SoilMoistureSat, SoilExpCoeffB, SoilMatPotentialSat (match L4 poros, bee, psis).
 - **Examples**: hrldas/HRLDAS_forcing/run/examples/{single_point (Bondville), ERA5 (ERA5-Land forcing prep)}.
 
-## Build environment (not built yet)
+## Workflow
+- After each change: commit, then push to `git@github.com:WqgJing/NOAH-s-.git` (main).
+- Upstream code under `src/` is never edited in place. Our changes go in `scripts/`, `hpc/` and (later) `patches/`.
+- Jobs run through `sbatch` (`hpc/*.slurm`, logs in `logs/`). Batch scripts must `source /etc/profile.d/z00_lmod_pace.sh`
+  before `module load`.
+
+## Reproduction of NCAR's single-point example (2026-11-10): PASSED
+- Build: `sbatch hpc/build_hrldas.slurm` (serial gfortran 12.3, netCDF-Fortran 4.6.1; only the netCDF paths changed), 49 s.
+- Run: `sbatch --export=ALL,CONFIG=shipped|tutorial hpc/run_bondville.slurm`. This is Bondville IL, 1998, 30-min forcing.
+  Starts 1998-01-02 (the forcing starts then, as in the tutorial), KDAY 364, daily output files.
+- Compare: `sbatch hpc/compare_bondville.slurm` writes `runs/figs/bondville_reproduce.png`. References were extracted from
+  `src/hrldas/tutorial/Note1_Single_Point.ipynb`.
+- Results:
+  - LH on 20 Jun 1998 vs the tutorial's ncview screenshot (digitised): r 1.000, RMSE 1.9 W m-2, peak 428 vs 432 at 18:30 UTC.
+    The shipped and tutorial options give the same result here.
+  - Top-soil temperature on 2 Jan 00:00-07:30 vs the tutorial run log: max difference 0.10 K (tutorial options) and 0.27 K
+    (shipped options). The remainder is most likely the tutorial's older release: its namelist lacks several v5.2 options.
+  - Year: ET about 720 mm, Jun-Aug mean LH 105 W m-2, TRAD 247-310 K. The first output step carries -9999 fill values (masked).
+- Cost: hrldas.exe takes 63 s per point-year. The driver's own timer reports SFLX (the land-model physics) as 0.00 s, so the time
+  is file I/O (17,520 half-hourly forcing files plus outputs and restarts), not physics. For fitting s*, forcing must be kept in
+  memory or the vector mode used.
+
+## Build environment
 - Modules available: gcc, netcdf-fortran/4.6.1-mva2-hdf5-1.14, netcdf-c/4.9.2, mvapich2, openmpi.
 - Build through sbatch, consistent with the other SLURM jobs.
 
