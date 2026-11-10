@@ -67,24 +67,21 @@ for cfg in CONFIGS:
     print(f"  year: mean LH {yr['LH'].mean():.1f}, mean HFX {yr['HFX'].mean():.1f} W m-2, ET {yr['LH'].mean()/2.45e6*86400*365:.0f} mm; "
           f"Jun-Aug mean LH {yr.loc['1998-06':'1998-08','LH'].mean():.1f}; TRAD range {yr['TRAD'].min():.1f}-{yr['TRAD'].max():.1f} K")
 
-fig, ax = plt.subplots(2, 2, figsize=(14, 9), layout="constrained")
-a = ax[0, 0]; a.plot(REF_LH_T, REF_LH, "o-", color="k", ms=4, lw=1.2, label="tutorial (digitised ncview)")
-for cfg, c in zip(CONFIGS, ("tab:blue", "tab:orange")):
-    a.plot(REF_LH_T, res[cfg][0]["LH"].reindex(REF_LH_T), "-", color=c, lw=1.6, label=f"ours, {cfg} options")
-a.set_title("(a) latent heat LH, 20 Jun 1998 (UTC)", loc="left"); a.set_ylabel("W m$^{-2}$"); a.legend(fontsize=8, frameon=False)
-a = ax[0, 1]; a.plot(REF_T, REF_TSLB, "o-", color="k", ms=4, lw=1.2, label="tutorial run log")
-for cfg, c in zip(CONFIGS, ("tab:blue", "tab:orange")):
-    a.plot(REF_T, res[cfg][1]["TSLB1"].reindex(REF_T), "-", color=c, lw=1.6, label=f"ours, {cfg}")
-a.set_title("(b) top-layer soil temperature, 2 Jan 1998 00:00-07:30 (run-log printout)", loc="left"); a.set_ylabel("K")
-a.legend(fontsize=8, frameon=False)
-for cfg, c in zip(CONFIGS, ("tab:blue", "tab:orange")):
-    dd = res[cfg][0].resample("1D").mean()
-    ax[1, 0].plot(dd.index, dd["LH"], "-", color=c, lw=1.2, label=f"LH {cfg}")
-    ax[1, 0].plot(dd.index, dd["HFX"], "--", color=c, lw=1.0, label=f"HFX {cfg}")
-    ax[1, 1].plot(dd.index, dd["TRAD"] - 273.15, "-", color=c, lw=1.2, label=f"TRAD {cfg}")
-ax[1, 0].set_title("(c) daily mean latent (solid) and sensible (dashed) heat, 1998", loc="left"); ax[1, 0].set_ylabel("W m$^{-2}$")
-ax[1, 1].set_title("(d) daily mean radiative surface temperature TRAD, 1998", loc="left"); ax[1, 1].set_ylabel("$^\\circ$C")
-for a in ax[1]: a.legend(fontsize=8, frameon=False)
-fig.suptitle("Noah-MP v5.2.1 (HRLDAS) single-point example, Bondville IL 1998: our build vs the NCAR tutorial", fontsize=12)
-import os; os.makedirs(f"{N}/runs/figs", exist_ok=True)
-fig.savefig(f"{N}/runs/figs/bondville_reproduce.png", dpi=110); print("\nsaved runs/figs/bondville_reproduce.png")
+# Minimal figure (project plot style): tutorial reference (markers) vs our run with the tutorial's options (line).
+import matplotlib.dates as mdates, os
+ours = res["tutorial"]
+fig, ax = plt.subplots(1, 2, figsize=(11, 3.6), layout="constrained")
+a = ax[0]
+a.plot(REF_LH_T, REF_LH, "o", color="k", ms=4, mfc="none", label="NCAR tutorial")
+a.plot(REF_LH_T, ours[0]["LH"].reindex(REF_LH_T), "-", color="tab:red", lw=1.4, label="this run")
+a.set_ylabel("LH (W m$^{-2}$)"); a.set_xlabel("20 Jun 1998 (UTC)")
+a.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 24, 6))); a.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+a.legend(frameon=False)
+a = ax[1]
+a.plot(REF_T, REF_TSLB, "o", color="k", ms=4, mfc="none", label="NCAR tutorial")
+a.plot(REF_T, ours[1]["TSLB1"].reindex(REF_T), "-", color="tab:red", lw=1.4, label="this run")
+a.set_ylabel("Top-layer soil temperature (K)"); a.set_xlabel("2 Jan 1998 (UTC)")
+a.xaxis.set_major_locator(mdates.HourLocator(byhour=range(0, 8, 2))); a.xaxis.set_major_formatter(mdates.DateFormatter("%H:%M"))
+for a in ax: a.spines[["top", "right"]].set_visible(False)
+os.makedirs(f"{N}/runs/figs", exist_ok=True)
+fig.savefig(f"{N}/runs/figs/bondville_reproduce.png", dpi=130); print("\nsaved runs/figs/bondville_reproduce.png")
