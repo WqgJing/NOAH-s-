@@ -71,6 +71,11 @@ After editing build/hrldas: `scripts/make_patch.sh` re-exports the patch. src/ i
 | `NUIS_Z0_SCALE` | 1.0 | canopy roughness length, canopy top and bottom height x s |
 | (always) | - | new output `BTRAN`; cumulative physics timer `SFLXtot` in the log |
 
+Upstream bug fixed in the same patch (ConfigVarInTransferMod.F90): with `SOIL_DATA_OPTION = 4` the per-layer soil type stayed
+undefined (-9999) while EnergyVarInTransfer / WaterVarInTransfer index the soil tables with it before the option-4 values
+overwrite them, so the run aborts under -fbounds-check ("Index '-9999' ... quartz_table"). Now initialized from ISLTYP as option 3
+does. Options 1-3 unchanged (regression test still bit-identical).
+
 No code is needed for observed LAI (`DYNAMIC_VEG_OPTION = 8`: LAI from each forcing file, vegetation fraction from LAI) or for
 L4 soil parameters (`SOIL_DATA_OPTION = 4` + `SPATIAL_FILENAME`).
 
@@ -90,3 +95,21 @@ Tests (`sbatch hpc/test_patched_bondville.slurm`, Bondville 1998; all PASS, 2026
   Ks placeholders from the loam table class (theta is prescribed; quartz affects soil heat conduction, to revisit).
 - Laio: s* = bank theta_star_ref, s_w = bank theta_w.
 - MODIS Aqua/Terra daily LST at the same pixels (scripts/fetch_lst_points.py) for the TRAD comparison (scripts/compare_trad_lst.py).
+- SMAP L4 root zone comes from the local daily files (sbi_train/runs/l4/l4_rootzone_<year>.npy, the map's product). They are
+  identical to GEE 008 for 2018-2022 (scripts/check_l4_local.py). The surface layer is from GEE 008 (no local L4 surface).
+
+## First forward runs (2018 spin-up, 2019 shown; hpc/run_pixel.slurm, scripts/plot_pixel_runs.py -> runs/figs/pixel_runs_2019.png)
+Reference s* (bank theta_star_ref), not fitted:
+- BV (cropland, s* 0.298): L4 root zone below s* on 25 % of days (Aug-Oct); daytime BTRAN down to 0.57.
+- VR (s* 0.129) and KG (s* 0.077), grassland: L4 root zone never below s* (minimum 0.141, 0.114), so BTRAN = 1 all year and there
+  is no s* signal in TRAD at this s*.
+- TRAD range 2019: BV -35 to 41 C (Jan 2019 cold outbreak), VR -4 to 53 C, KG -7 to 60 C.
+- Run time 5.5-7.5 min per pixel for 2 years; physics 2.5-3.9 s, the rest file I/O.
+
+## Python port (pyport/, see pyport/README.md)
+NumPy port of the routines this configuration uses (driver, radiation, two-stream, vegetated and bare energy balance, MOST,
+Ball-Berry, Laio BTRAN, soil heat, phase change, canopy water). Snow, glacier, crop, irrigation, runoff/groundwater and the
+soil-water solver (overwritten by the prescription) are excluded; the code raises if they would be needed.
+Verified against Fortran reference runs (hpc/pyref_pixel.slurm, Jun-Sep 2018, VR and KG, plus variants with s* = 0.25 so that the
+Laio branch is active; scripts/pyport_compare.py): TRAD RMS diff about 1e-4 K, fluxes about 1e-3 W m-2 RMS, BTRAN 3e-8, i.e.
+single-precision round-off. About 5 s per 122-day run. Not exercised yet: frozen soil, the no-vegetation branch, canopy snow.

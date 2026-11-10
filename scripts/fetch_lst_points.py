@@ -21,12 +21,15 @@ def qc_ok(q):
     return q.bitwiseAnd(3).lte(1).And(q.rightShift(6).bitwiseAnd(3).lte(1))
 
 
+BANDS = {}                                                     # actual view-angle band names, read from the collection
+
+
 def layers(i):
     md, mn = qc_ok(i.select("QC_Day")), qc_ok(i.select("QC_Night"))
     ld = i.select("LST_Day_1km").multiply(0.02).updateMask(md)                 # K
     ln = i.select("LST_Night_1km").multiply(0.02).updateMask(mn)
     vtd = i.select("Day_view_time").multiply(0.1).updateMask(md); vtn = i.select("Night_view_time").multiply(0.1).updateMask(mn)
-    vad = i.select("Day_view_angl").subtract(65).updateMask(md); van = i.select("Night_view_angl").subtract(65).updateMask(mn)
+    vad = i.select(BANDS["vad"]).subtract(65).updateMask(md); van = i.select(BANDS["van"]).subtract(65).updateMask(mn)
     vd = md.unmask(0).rename("fd"); vn = mn.unmask(0).rename("fn")
     return ee.Image.cat([ld.rename("ld"), ln.rename("ln"), vtd.rename("vtd"), vtn.rename("vtn"), vad.rename("vad"), van.rename("van"), vd, vn])
 
@@ -35,6 +38,10 @@ KEYS = ["ld", "ln", "fd", "fn", "vtd", "vtn", "vad", "van"]
 dates = pd.date_range(f"{YEARS[0]}-01-01", f"{YEARS[-1]}-12-31", freq="D"); nd = len(dates); npx = len(names)
 OUT = {k: np.full((len(SATS), nd, npx), np.nan, np.float32) for k in KEYS}
 for s_i, (sat, cid) in enumerate(SATS.items()):
+    bn = ee.ImageCollection(cid).filterDate("2019-06-01", "2019-06-02").first().bandNames().getInfo()
+    BANDS["vad"] = [b for b in bn if b.startswith("Day_view_ang")][0]
+    BANDS["van"] = [b for b in bn if b.startswith("Night_view_ang")][0]
+    print(f"{sat}: bands {bn}; view-angle bands {BANDS}", flush=True)
     for p in range(npx):
         cell = ee.Geometry.Rectangle([float(lon[p]) - 0.125, float(lat[p]) - 0.125, float(lon[p]) + 0.125, float(lat[p]) + 0.125])
         for y in YEARS:

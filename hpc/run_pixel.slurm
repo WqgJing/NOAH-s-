@@ -41,6 +41,8 @@ echo "== namelist vs NCAR example:"; diff $N/src/hrldas/hrldas/run/examples/sing
 SECONDS=0; ./hrldas.exe > hrldas.log 2>&1 || { echo "hrldas.exe FAILED"; tail -30 hrldas.log; exit 1; }
 echo "hrldas.exe: ${SECONDS}s; $(grep 'SFLXtot' hrldas.log | tail -1 | sed 's/  */ /g')"
 grep -i -E "error|warning|stop" hrldas.log | sort | uniq -c | head -10 || true
-echo "output files: $(ls out | grep -c LDASOUT)"
+NOUT=$(ls out | grep -c LDASOUT || true); echo "output files: $NOUT (expected $KDAY)"
 rm -f $R/forcing/*.LDASIN_DOMAIN1
+# HRLDAS stops with exit code 0 on setup errors, so success is judged by the output, not the exit code
+if [ "$NOUT" -lt "$KDAY" ]; then echo "RUN_FAILED: too few output files"; tail -5 hrldas.log; exit 1; fi
 echo RUN_OK
