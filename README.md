@@ -135,3 +135,14 @@ TRAD at the Aqua overpass (13:30 local), seasonal mean change vs beta = 1:
 So in the dry season at sparse grassland the closure signal in TRAD is below MODIS LST error (1-2 K): little transpiration is
 left to switch off, and only the canopy part (weighted by FVEG) warms. Signal should be larger where and when transpiration is
 high (spring drydown, cropland, denser vegetation); not tested yet.
+
+### Growing season 2019 (scripts/sens_beta_year_py.py -> runs/figs/sens_beta_year_py.png; Python port, 1 Mar - 31 Oct, cold start)
+- The full-year attempt stopped in Jan 2018 at both pixels: the port refuses any snowfall (ERA5 had ~1e-9 mm/s). Until then it
+  matched Fortran (TRAD RMS 8e-5 / 4e-5 K).
+- dTRAD at 13:30 for fixed beta 0.05 vs 1 is proportional to the transpiration heat available at 13:30: about 1.4 K per
+  100 W m-2 at VR (r near 1 in the scatter).
+- VR: April mean +1.4 K (transpiration heat 100 W m-2, LAI 2.3, FVEG 0.72); daily peaks +2.6 K in late April (180 W m-2);
+  Jul-Oct +0.3 to +0.5 K.
+- KG: at most +0.2 K (monsoon, transpiration heat at most about 20 W m-2).
+- So TRAD can only carry s* where midday transpiration is well above 100 W m-2 (green, dense vegetation): about 1.5 K per
+  100 W m-2 here.
