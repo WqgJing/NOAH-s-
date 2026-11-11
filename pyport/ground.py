@@ -80,6 +80,8 @@ def soil_water_transpiration(v, p):
         for k in range(nr):
             theta += v.SoilLiqWater[k] * dz[k] / zr
     btr = min(1.0, max(0.0, (theta - p.SoilMoistureLaioWilt) / (p.SoilMoistureLaioStar - p.SoilMoistureLaioWilt)))
+    if getattr(p, "BtranOverride", None) is not None:      # sensitivity hook (not in Fortran): fixed beta, ignores soil moisture
+        btr = float(p.BtranOverride)
     v.SoilTranspFacAcc = max(1.0e-6, btr)
     v.SoilTranspFac = [dz[k] / zr for k in range(nr)]
 

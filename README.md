@@ -121,3 +121,17 @@ Gaps (details in pyport/README.md):
 - Left out by design: soil-water solver, runoff, groundwater (overwritten by the L4 prescription); glacier, lake, urban, wetland,
   tile drainage, dynamic vegetation, alternative schemes.
 - The full Fortran model has none of these limits. Next check: the port on the 2018-2019 VR / KG runs (winter frost nights).
+
+## TRAD sensitivity to beta (scripts/sens_trad_beta.py -> runs/figs/sens_trad_beta.png; Python port, Jun-Sep 2018)
+TRAD at the Aqua overpass (13:30 local), seasonal mean change vs beta = 1:
+
+| | VR (FVEG ~0.5) | KG (FVEG ~0.2) |
+|---|---|---|
+| Transpiration at beta = 1 | 1.0 mm/d | 0.25 mm/d |
+| Fixed beta 1 -> 0.05: TRAD | +0.45 K | +0.13 K |
+| Fixed beta 1 -> 0.05: canopy TV | +0.92 K | +0.56 K |
+| s* scan up to "always below s*": TRAD, mean (max) | +0.17 (0.46) K | +0.02 (0.07) K |
+
+So in the dry season at sparse grassland the closure signal in TRAD is below MODIS LST error (1-2 K): little transpiration is
+left to switch off, and only the canopy part (weighted by FVEG) warms. Signal should be larger where and when transpiration is
+high (spring drydown, cropland, denser vegetation); not tested yet.
