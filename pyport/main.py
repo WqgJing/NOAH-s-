@@ -158,8 +158,11 @@ def noahmp_main(v, p):
     atmos.process_atmos_forcing(v, p)
     atmos.general_init(v, p)
     atmos.phenology_main(v, p)
-    if v.FlagCropland:   # IrrigationPrepare can trigger sprinkler irrigation on cropland even with IRRIGATION_OPTION 0
-        raise NotImplementedError("cropland (irrigation trigger) is not ported")
+    # Cropland: with IRRIGATION_OPTION 0, IrrigationTriggerMod sets FlagIrri = .false. (OptIrrigation < 1), so no irrigation water
+    # is ever applied, and HeatLatentIrriEvap is reset to 0 every step (EnergyVarInitMod), so the cropland branches in
+    # NoahmpMain / EnergyMain / WaterMain have no effect. Only irrigation itself is not ported.
+    if v.FlagCropland and p.OptIrrigation != 0:
+        raise NotImplementedError("irrigation is not ported (IRRIGATION_OPTION must be 0 on cropland)")
     canopy_water.canopy_water_intercept(v, p)
     canopy_water.precipitation_heat_advect(v, p)
     energy_main(v, p)
