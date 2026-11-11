@@ -54,7 +54,7 @@ These options are covered:
   window is snow-free. The code raises `NotImplementedError` if snowfall reaches the ground, if there is initial
   snow, or if snow depth exceeds 0.05 m. BATS snow aging and albedo and the Niu07 snow-cover fraction are ported
   because they run every step, and they evaluate to zero snow.
-- **Other land types and options**: glacier, lake, urban, crop and irrigation. The code raises for cropland, because
+- **Other land types and options**: glacier, lake, urban, crop model and irrigation. (2026-11-10: cropland now runs when IRRIGATION_OPTION = 0, verified at BV May-Sep 2019, TRAD RMS 3.8e-4 K; previously the code raised for cropland, because
   IrrigationPrepare can trigger irrigation there even with IRRIGATION_OPTION 0. Also excluded: wetland, tile
   drainage, dynamic-vegetation biochemistry, and every alternative option (Jarvis, Chen97, other BTR / RSURF /
   radiation / albedo schemes).

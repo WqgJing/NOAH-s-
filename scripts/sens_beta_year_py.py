@@ -7,7 +7,7 @@ Fortran pixel runs (runs/pixel_<NAME>_2018_2019; 2018 = spin-up, 2019 analysed).
    dTRAD vs b = 1; transpiration heat TR and LAI at 13:30 for b = 1 (the "available" closure signal).
 Window (2026-11-10, user: "check several months like growing season"): 2019-03-01 .. 10-31, cold start, first 10 days dropped.
 Out: printed monthly tables, runs/figs/sens_beta_year_py.png (minimal style)."""
-import glob, sys
+import glob, os, sys
 from datetime import datetime
 import numpy as np, pandas as pd, xarray as xr
 import matplotlib; matplotlib.use("Agg"); import matplotlib.pyplot as plt, matplotlib.dates as mdates
@@ -16,11 +16,14 @@ N = "/storage/project/r-rbras6-0/jjason3/proposal_drought/noah"; sys.path.insert
 from pyport import PointModel
 from pyport.driver import ldasout_record
 
-NAMES = ["VR", "KG"]; BETAS = [1.0, 0.5, 0.2, 0.05]
+NAMES = os.environ.get("SENS_NAMES", "VR KG").split(); BETAS = [1.0, 0.5, 0.2, 0.05]
+RUNDIR = os.environ.get("SENS_RUNDIR", "runs/pixel_{name}_2018_2019")          # e.g. "runs/pyref_{name}"
+TAG = os.environ.get("SENS_TAG", "")
 KEEP = ("TRAD", "TV", "TGB", "TR", "LAI", "FVEG", "BTRAN", "ETRAN")
 
 
-START, END, SPIN = datetime(2019, 3, 1), datetime(2019, 11, 1), 10      # growing-season window, cold start, spin-up days dropped
+START = datetime.fromisoformat(os.environ.get("SENS_START", "2019-03-01")); END = datetime.fromisoformat(os.environ.get("SENS_END", "2019-11-01"))
+SPIN = 10                                                             # cold start at START, spin-up days dropped
 
 
 def run(rd, beta=None):
@@ -56,9 +59,9 @@ def at_overpass(df, lon):
     return out[ok]
 
 
-fig, ax = plt.subplots(len(NAMES), 3, figsize=(17, 3.8 * len(NAMES)), layout="constrained")
+fig, ax = plt.subplots(len(NAMES), 3, figsize=(17, 3.8 * len(NAMES)), layout="constrained", squeeze=False)
 for r, name in enumerate(NAMES):
-    rd = f"{N}/runs/pixel_{name}_2018_2019"; lon = float(np.load(f"{rd}/forcing/forcing_arrays.npz")["lon"])
+    rd = f"{N}/" + RUNDIR.format(name=name); lon = float(np.load(f"{rd}/forcing/forcing_arrays.npz")["lon"])
     sw = {}
     for b in BETAS:
         df, stop = run(rd, beta=b); sw[b] = at_overpass(df, lon)
@@ -82,4 +85,4 @@ for r, name in enumerate(NAMES):
     a.plot(b1.TR, dT[0.05], "o", ms=2.5, color="darkred", mfc="none")
     a.set_xlabel(r"transpiration heat at 13:30, $\beta$=1 (W m$^{-2}$)"); a.set_ylabel(r"$\Delta$TRAD, $\beta$=0.05 (K)")
 for a in ax.ravel(): a.spines[["top", "right"]].set_visible(False)
-fig.savefig(f"{N}/runs/figs/sens_beta_year_py.png", dpi=110); print("\nsaved runs/figs/sens_beta_year_py.png")
+fig.savefig(f"{N}/runs/figs/sens_beta_year_py{TAG}.png", dpi=110); print(f"\nsaved runs/figs/sens_beta_year_py{TAG}.png")

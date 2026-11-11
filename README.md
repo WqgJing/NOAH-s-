@@ -146,3 +146,17 @@ high (spring drydown, cropland, denser vegetation); not tested yet.
 - KG: at most +0.2 K (monsoon, transpiration heat at most about 20 W m-2).
 - So TRAD can only carry s* where midday transpiration is well above 100 W m-2 (green, dense vegetation): about 1.5 K per
   100 W m-2 here.
+
+### Cropland, Bondville (BV) May-Sep 2019 (Python port; reference hpc/pyref_pixel.slurm START=2019-05-01 KDAY=153)
+- Cropland enabled in the port when IRRIGATION_OPTION = 0: the irrigation trigger sets FlagIrri = .false. and the irrigation
+  evaporation heat is reset to 0 every step, so the cropland branches do nothing. Port vs Fortran at BV: all targets PASS
+  (TRAD RMS 3.8e-4 K, LH 0.008 W m-2, BTRAN 3e-8), with BTRAN < 1 on 38 % of steps.
+- Fixed-beta sweep (runs/figs/sens_beta_year_py_BV.png), monthly mean dTRAD at 13:30:
+
+  | Month | LAI | Transpiration heat 13:30 | beta 0.5 | beta 0.2 | beta 0.05 |
+  |---|---|---|---|---|---|
+  | Jul | 2.9 | 233 W m-2 | +1.0 K | +2.3 K | +3.0 K |
+  | Aug | 3.6 | 278 W m-2 | +1.3 K | +2.7 K | +3.5 K |
+
+  Daily peaks about +6 K (beta 0.05) and +3.7 K (beta 0.5) at 400 W m-2. The same slope as VR, about 1.4-1.5 K per
+  100 W m-2. A green crop in midsummer is where TRAD is clearly sensitive to beta.
