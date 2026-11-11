@@ -112,4 +112,12 @@ Ball-Berry, Laio BTRAN, soil heat, phase change, canopy water). Snow, glacier, c
 soil-water solver (overwritten by the prescription) are excluded; the code raises if they would be needed.
 Verified against Fortran reference runs (hpc/pyref_pixel.slurm, Jun-Sep 2018, VR and KG, plus variants with s* = 0.25 so that the
 Laio branch is active; scripts/pyport_compare.py): TRAD RMS diff about 1e-4 K, fluxes about 1e-3 W m-2 RMS, BTRAN 3e-8, i.e.
-single-precision round-off. About 5 s per 122-day run. Not exercised yet: frozen soil, the no-vegetation branch, canopy snow.
+single-precision round-off. About 5 s per 122-day run. Time series: runs/figs/pyport_vs_fortran.png (scripts/plot_pyport_compare.py).
+Gaps (details in pyport/README.md):
+- Ported but not exercised by any reference run: frozen soil / phase change with ice, the frozen-soil start-up formula, the
+  no-vegetation (bare-only) branch, the BTRAN floor 1e-6, canopy snow / ice.
+- Not ported, the code raises: snow on the ground (layers, compaction, snow hydrology); cropland (the irrigation trigger can fire
+  even with irrigation off).
+- Left out by design: soil-water solver, runoff, groundwater (overwritten by the L4 prescription); glacier, lake, urban, wetland,
+  tile drainage, dynamic vegetation, alternative schemes.
+- The full Fortran model has none of these limits. Next check: the port on the 2018-2019 VR / KG runs (winter frost nights).
