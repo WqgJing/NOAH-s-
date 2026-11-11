@@ -100,3 +100,8 @@ of steps and the canopy is wet in 2–12 %.
 - the BTRAN floor of 1e-6
 - canopy snow / ice
 - TG at or below freezing
+
+## Sensitivity hook (Python only, not in the Fortran)
+`m.p.BtranOverride = b` fixes BTRAN at b (ignores soil moisture); default None. s* can be changed with
+`m.p.SoilMoistureLaioStar = s` after building the model. With the default (None) the output is bit-identical to the verified
+run (checked in scripts/sens_trad_beta.py).
